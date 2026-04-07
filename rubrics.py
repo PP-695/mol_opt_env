@@ -13,7 +13,7 @@ TASKS: dict[str, TaskSpec] = {
             "Start from benzene and make small, realistic structural edits."
         ),
         start_smiles="c1ccccc1",
-        max_steps=8,
+        max_steps=6,
         difficulty="easy",
         success_threshold=0.8,
     ),
@@ -23,7 +23,7 @@ TASKS: dict[str, TaskSpec] = {
             "Increase the QED drug-likeness score starting from aspirin without making invalid or repetitive edits."
         ),
         start_smiles="CC(=O)Oc1ccccc1C(=O)O",
-        max_steps=12,
+        max_steps=10,
         difficulty="medium",
         success_threshold=0.65,
     ),
@@ -34,7 +34,7 @@ TASKS: dict[str, TaskSpec] = {
             "reduce flexibility, and keep Lipinski violations at zero."
         ),
         start_smiles="CCN(CC)CCNC(=O)c1cc(Cl)ccc1N1CCN(CCOCC)CC1",
-        max_steps=15,
+        max_steps=12,
         difficulty="hard",
         success_threshold=0.8,
     ),

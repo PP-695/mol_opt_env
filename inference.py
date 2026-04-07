@@ -30,15 +30,30 @@ if HF_TOKEN is None:
 client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
 TEMPERATURE = 0.0
-MAX_TOKENS = 64
+MAX_TOKENS = 256 #64
 BENCHMARK = "molopt_env"
+MODEL_REQUESTS_DISABLED = False
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an expert medicinal chemist optimizing molecules.
-    Output exactly one valid SMILES string and nothing else.
-    Make a small, chemically plausible edit that improves the task objective.
-    Never include markdown, explanations, or quotes.
+    You are an expert medicinal chemist doing lead optimization.
+    Your ONLY output must be exactly one valid SMILES string.
+    Make one small, chemically plausible structural change that improves the stated goal.
+    NEVER repeat any SMILES you have already proposed in this episode.
+    Do not add any explanation, markdown, quotes, prefixes, or extra text.
+    Return nothing but the SMILES string.
+
+    Example 1 (logP targeting):
+    Input: Task: logp_targeting | Goal: logP in [2,3] | Current SMILES: c1ccccc1
+    Output: Cc1ccccc1
+
+    Example 2 (QED maximization):
+    Input: Task: qed_maximization | Goal: maximize QED | Current SMILES: CC(=O)Oc1ccccc1C(=O)O
+    Output: CC(=O)Nc1ccccc1C(=O)O
+
+    Example 3 (multi-objective):
+    Input: Task: multi_objective | Goal: raise QED, lower SA & rotatable bonds, Lipinski=0 | Current SMILES: CCN(CC)CCNC(=O)c1cc(Cl)ccc1N1CCN(CCOCC)CC1
+    Output: CCN(CC)CCNC(=O)c1cc(Cl)ccc1N1CCN(CCO)CC1
     """
 ).strip()
 
@@ -66,31 +81,36 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def build_user_prompt(task_name: str, metadata: dict, history: List[str]) -> str:
-    spec = TASKS[task_name]
     props = metadata.get("properties", {})
-    history_block = "\n".join(history[-4:]) if history else "None"
-    return textwrap.dedent(
-        f"""
-        Task: {task_name}
-        Objective: {spec.description}
-        Current SMILES: {props.get('smiles', spec.start_smiles)}
-        Current properties:
-        - QED: {props.get('qed')}
-        - logP: {props.get('logp')}
-        - Molecular weight: {props.get('molecular_weight')}
-        - SA score: {props.get('sa_score')}
-        - Lipinski violations: {props.get('lipinski_violations')}
-        Steps remaining: {metadata.get('steps_remaining', spec.max_steps)}
-        Recent proposals:
-        {history_block}
+    smiles = props.get("smiles", TASKS[task_name].start_smiles)
+    steps_left = metadata.get("steps_remaining", TASKS[task_name].max_steps)
 
-        Output the next improved SMILES now.
-        """
-    ).strip()
+    short_goals = {
+        "logp_targeting": "logP in [2,3]",
+        "qed_maximization": "maximize QED",
+        "multi_objective": "raise QED, lower SA & rotatable bonds, Lipinski violations=0",
+    }
+
+    # Show last 4 moves clearly so model avoids repetition
+    history_block = "\n".join(history[-4:]) if history else "none"
+
+    return (
+        f"Task: {task_name}\n"
+        f"Goal: {short_goals[task_name]}\n"
+        f"Current SMILES: {smiles}\n"
+        f"QED:{props.get('qed')} logP:{props.get('logp')} SA:{props.get('sa_score')} "
+        f"Lip:{props.get('lipinski_violations')} RB:{props.get('rotatable_bonds')}\n"
+        f"Steps left: {steps_left}\n"
+        f"Recent proposals (DO NOT repeat any of these):\n{history_block}\n"
+        f"Next SMILES:"
+    )
 
 
 def get_model_smiles(task_name: str, metadata: dict, history: List[str]) -> str:
+    global MODEL_REQUESTS_DISABLED
     fallback = metadata.get("properties", {}).get("smiles", TASKS[task_name].start_smiles)
+    if MODEL_REQUESTS_DISABLED:
+        return fallback
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
@@ -106,6 +126,9 @@ def get_model_smiles(task_name: str, metadata: dict, history: List[str]) -> str:
         text = text.strip("`\"' ")
         return text.splitlines()[0].strip() if text else fallback
     except Exception as exc:
+        error_text = str(exc)
+        if "401" in error_text or "402" in error_text:
+            MODEL_REQUESTS_DISABLED = True
         print(f"[DEBUG] Model request failed: {exc}", file=sys.stderr, flush=True)
         return fallback
 
