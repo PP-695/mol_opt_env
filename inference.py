@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from client import MolOptEnv
 from env import MolOptEnvironment
+from openenv.core.containers.runtime.providers import LocalDockerProvider
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.mcp_types import CallToolAction, Observation
 from rubrics import TASKS
@@ -19,6 +20,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct:novita")
 HF_TOKEN = os.getenv("HF_TOKEN")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+DOCKER_READY_TIMEOUT_S = float(os.getenv("DOCKER_READY_TIMEOUT_S", "90"))
 
 if HF_TOKEN is None:
     raise ValueError("HF_TOKEN environment variable is required")
@@ -106,14 +108,25 @@ def get_model_smiles(task_name: str, metadata: dict, history: List[str]) -> str:
         return fallback
 
 
-def create_env() -> Tuple[object, bool]:
+async def create_env() -> Tuple[object, bool]:
     if LOCAL_IMAGE_NAME:
+        provider = None
         try:
-            async_client = asyncio.run(MolOptEnv.from_docker_image(LOCAL_IMAGE_NAME))
-            return async_client.sync(), True
+            provider = LocalDockerProvider()
+            base_url = provider.start_container(LOCAL_IMAGE_NAME)
+            provider.wait_for_ready(base_url, timeout_s=DOCKER_READY_TIMEOUT_S)
+            async_client = MolOptEnv(base_url=base_url, provider=provider)
+            await async_client.connect()
+            return async_client, True
         except Exception as exc:
+            if provider is not None:
+                try:
+                    provider.stop_container()
+                except Exception:
+                    pass
             print(
-                f"[DEBUG] Docker-backed environment startup failed for image '{LOCAL_IMAGE_NAME}': {exc}. "
+                f"[DEBUG] Docker-backed environment startup failed for image '{LOCAL_IMAGE_NAME}' "
+                f"within {DOCKER_READY_TIMEOUT_S:.1f}s: {exc}. "
                 "Falling back to in-process environment.",
                 file=sys.stderr,
                 flush=True,
@@ -121,22 +134,22 @@ def create_env() -> Tuple[object, bool]:
     return MolOptEnvironment(), False
 
 
-def reset_env(env_obj: object, task_name: str, uses_client: bool) -> StepResult[Observation]:
+async def reset_env(env_obj: object, task_name: str, uses_client: bool) -> StepResult[Observation]:
     if uses_client:
-        return env_obj.reset(task=task_name)  # type: ignore[return-value]
+        return await env_obj.reset(task=task_name)  # type: ignore[return-value]
     observation = env_obj.reset(task=task_name)  # type: ignore[call-arg]
     return StepResult(observation=observation, reward=0.0, done=bool(observation.done))
 
 
-def step_env(env_obj: object, candidate_smiles: str, uses_client: bool) -> StepResult[Observation]:
+async def step_env(env_obj: object, candidate_smiles: str, uses_client: bool) -> StepResult[Observation]:
     action = CallToolAction(tool_name="modify_molecule", arguments={"new_smiles": candidate_smiles})
     if uses_client:
-        return env_obj.step(action)  # type: ignore[return-value]
+        return await env_obj.step(action)  # type: ignore[return-value]
     observation = env_obj.step(action)  # type: ignore[call-arg]
     return StepResult(observation=observation, reward=observation.reward, done=bool(observation.done))
 
 
-def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
+async def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
     rewards: List[float] = []
     history: List[str] = []
     steps_taken = 0
@@ -147,7 +160,7 @@ def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        result = reset_env(env_obj, task_name, uses_client)
+        result = await reset_env(env_obj, task_name, uses_client)
         metadata = result.observation.metadata or {}
         max_steps = TASKS[task_name].max_steps
 
@@ -156,7 +169,7 @@ def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
                 break
 
             candidate_smiles = get_model_smiles(task_name, metadata, history)
-            result = step_env(env_obj, candidate_smiles, uses_client)
+            result = await step_env(env_obj, candidate_smiles, uses_client)
 
             observation = result.observation
             metadata = observation.metadata or {}
@@ -187,19 +200,28 @@ def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
-def main() -> None:
-    env_obj, uses_client = create_env()
+async def close_env(env_obj: object, uses_client: bool) -> None:
+    close_fn = getattr(env_obj, "close", None)
+    if not callable(close_fn):
+        return
+
+    if uses_client:
+        await close_fn()
+    else:
+        close_fn()
+
+
+async def main() -> None:
+    env_obj, uses_client = await create_env()
     try:
         for task_name in TASKS:
-            run_task(task_name, env_obj, uses_client)
+            await run_task(task_name, env_obj, uses_client)
     finally:
-        close_fn = getattr(env_obj, "close", None)
-        if callable(close_fn):
-            try:
-                close_fn()
-            except Exception as exc:
-                print(f"[DEBUG] env.close() failed: {exc}", file=sys.stderr, flush=True)
+        try:
+            await close_env(env_obj, uses_client)
+        except Exception as exc:
+            print(f"[DEBUG] env.close() failed: {exc}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
