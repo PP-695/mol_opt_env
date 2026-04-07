@@ -4,6 +4,7 @@ import textwrap
 import json
 from typing import List, Optional, Tuple
 import asyncio
+import math
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -33,6 +34,16 @@ TEMPERATURE = 0.0
 MAX_TOKENS = 96 #64
 BENCHMARK = "molopt_env"
 MODEL_REQUESTS_DISABLED = False
+
+
+def clamp_open_score(value: float, low: float = 0.01, high: float = 0.99, default: float = 0.5) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = default
+    if not math.isfinite(numeric):
+        numeric = default
+    return max(low, min(high, numeric))
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
@@ -71,11 +82,12 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
         flush=True,
     )
 
-
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
+    safe_score = clamp_open_score(score)
+    safe_rewards = [clamp_open_score(reward) for reward in rewards]
+    rewards_str = ",".join(f"{reward:.2f}" for reward in safe_rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={safe_score:.3f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -247,7 +259,8 @@ async def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
             result = await step_env(env_obj, candidate_smiles, uses_client)
 
             observation = result.observation
-            reward = float(result.reward or 0.0)
+            raw_reward = float(result.reward or 0.0)
+            reward = clamp_open_score(raw_reward)
             done = bool(result.done)
 
             if uses_client:

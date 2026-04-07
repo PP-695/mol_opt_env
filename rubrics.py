@@ -43,6 +43,10 @@ TASKS: dict[str, TaskSpec] = {
 DEFAULT_TASK = "logp_targeting"
 
 
+def _clamp_open_unit_interval(value: float, eps: float = 0.01) -> float:
+    return max(eps, min(1.0 - eps, float(value)))
+
+
 def _objective_score(task_name: str, props: MoleculeProperties) -> float:
     if task_name == "logp_targeting":
         target_min, target_max = 2.0, 3.0
@@ -119,4 +123,5 @@ def compute_reward(
 
 
 def grade_episode(task_name: str, props: MoleculeProperties) -> float:
-    return round(_objective_score(task_name, props), 4)
+    raw_score = _objective_score(task_name, props)
+    return round(_clamp_open_unit_interval(raw_score), 4)
