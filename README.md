@@ -7,7 +7,7 @@ app_port: 8000
 pinned: false
 license: bsd-3-clause
 suggested_hardware: cpu-basic
-short_description: OpenEnv environment for real-world iterative molecule optimization and medicinal chemistry lead optimization.
+short_description: OpenEnv benchmark for iterative molecule optimization.
 tags:
   - openenv
   - chemistry
