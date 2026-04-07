@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "molopt-env"
+version = "0.1.0"
+description = "Molecule Optimization Environment for OpenEnv: iterative lead optimization for drug design"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core>=0.2.2",
+    "fastapi>=0.115.0",
+    "pydantic>=2.0.0",
+    "uvicorn>=0.24.0",
+    "requests>=2.31.0",
+    "openai>=1.30.0",
+    "python-dotenv>=1.0.0",
+    "fastmcp",
+    "rdkit>=2024.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+molopt-server = "server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["molopt_env", "molopt_env.server"]
+package-dir = { "molopt_env" = ".", "molopt_env.server" = "server" }

@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large files
+*.pt
+*.pth
+*.bin
+*.zip
+*.tar
+*.gz
+
+# Data folders (if any)
+data/
+datasets/
+
+# IDE
+.vscode/
+.idea/
+
+# Python packaging / tooling
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Node (if present)
+node_modules/
