@@ -108,7 +108,6 @@ class MolOptEnvironment(MCPEnvironment):
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._current_props = compute_properties(TASKS[DEFAULT_TASK].start_smiles)
         self._previous_props = self._current_props
-        self.reset(task=DEFAULT_TASK)
 
     def _current_properties_json(self) -> str:
         props = self._current_props or compute_properties(self._episode.current_smiles)
