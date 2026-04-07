@@ -30,13 +30,13 @@ TASKS: dict[str, TaskSpec] = {
     "multi_objective": TaskSpec(
         name="multi_objective",
         description=(
-            "Balance three real medicinal chemistry objectives at once: maximize QED, lower SA score, "
-            "and keep Lipinski violations at zero."
+            "Balance multiple medicinal chemistry objectives at once: raise QED, lower SA score, "
+            "reduce flexibility, and keep Lipinski violations at zero."
         ),
-        start_smiles="ClC1=CC=C(N2CCCCC2)C(=C1)C(=O)N(C)C",
+        start_smiles="CCN(CC)CCNC(=O)c1cc(Cl)ccc1N1CCN(CCOCC)CC1",
         max_steps=15,
         difficulty="hard",
-        success_threshold=0.55,
+        success_threshold=0.8,
     ),
 }
 
@@ -56,9 +56,14 @@ def _objective_score(task_name: str, props: MoleculeProperties) -> float:
     if task_name == "qed_maximization":
         return props.qed
 
-    sa_norm = max(0.0, (10.0 - props.sa_score) / 9.0)
-    lip_norm = max(0.0, 1.0 - 0.25 * props.lipinski_violations)
-    return max(0.0, min(1.0, 0.45 * props.qed + 0.30 * sa_norm + 0.25 * lip_norm))
+    qed_norm = max(0.0, min(1.0, (props.qed - 0.60) / 0.25))
+    sa_norm = max(0.0, min(1.0, (4.0 - props.sa_score) / 1.5))
+    lip_norm = max(0.0, 1.0 - 0.5 * props.lipinski_violations)
+    flex_norm = max(0.0, min(1.0, (10.0 - props.rotatable_bonds) / 6.0))
+    return max(
+        0.0,
+        min(1.0, 0.35 * qed_norm + 0.25 * sa_norm + 0.20 * lip_norm + 0.20 * flex_norm),
+    )
 
 
 def compute_reward(

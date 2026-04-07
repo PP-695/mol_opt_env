@@ -1,6 +1,7 @@
 import os
 import sys
 import textwrap
+import json
 from typing import List, Optional, Tuple
 import asyncio
 
@@ -8,11 +9,12 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from client import MolOptEnv
-from env import MolOptEnvironment
+from env import MolOptEnvironment, compute_properties
 from openenv.core.containers.runtime.providers import LocalDockerProvider
 from openenv.core.client_types import StepResult
-from openenv.core.env_server.mcp_types import CallToolAction, Observation
-from rubrics import TASKS
+from openenv.core.env_server.mcp_types import CallToolAction, CallToolObservation, Observation
+from models import MoleculeProperties
+from rubrics import TASKS, grade_episode
 
 load_dotenv()
 
@@ -108,6 +110,42 @@ def get_model_smiles(task_name: str, metadata: dict, history: List[str]) -> str:
         return fallback
 
 
+def unwrap_tool_result(result: object) -> object:
+    payload = result
+    if hasattr(payload, "data"):
+        payload = getattr(payload, "data")
+    if isinstance(payload, dict) and "data" in payload:
+        payload = payload["data"]
+    if isinstance(payload, str):
+        text = payload.strip()
+        if text:
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return text
+    return payload
+
+
+def build_local_metadata(
+    task_name: str,
+    props: MoleculeProperties,
+    *,
+    step: int,
+    done: bool,
+    last_action_error: Optional[str],
+) -> dict:
+    return {
+        "task_name": task_name,
+        "difficulty": TASKS[task_name].difficulty,
+        "step": step,
+        "steps_remaining": max(TASKS[task_name].max_steps - step, 0),
+        "done": done,
+        "properties": props.model_dump(),
+        "last_action_error": last_action_error,
+        "final_score": grade_episode(task_name, props) if done else None,
+    }
+
+
 async def create_env() -> Tuple[object, bool]:
     if LOCAL_IMAGE_NAME:
         provider = None
@@ -155,13 +193,27 @@ async def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
     steps_taken = 0
     score = 0.0
     success = False
-    metadata: dict = {}
+    start_props = compute_properties(TASKS[task_name].start_smiles)
+    if start_props is None:
+        raise RuntimeError(f"Invalid starting SMILES for task {task_name}")
+    current_props = start_props
+    metadata: dict = build_local_metadata(
+        task_name,
+        current_props,
+        step=0,
+        done=False,
+        last_action_error=None,
+    )
 
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
         result = await reset_env(env_obj, task_name, uses_client)
-        metadata = result.observation.metadata or {}
+        if not uses_client:
+            metadata = result.observation.metadata or metadata
+            props_payload = metadata.get("properties")
+            if isinstance(props_payload, dict):
+                current_props = MoleculeProperties.model_validate(props_payload)
         max_steps = TASKS[task_name].max_steps
 
         for step in range(1, max_steps + 1):
@@ -172,10 +224,32 @@ async def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
             result = await step_env(env_obj, candidate_smiles, uses_client)
 
             observation = result.observation
-            metadata = observation.metadata or {}
             reward = float(result.reward or 0.0)
             done = bool(result.done)
-            error = metadata.get("last_action_error")
+
+            if uses_client:
+                tool_payload = {}
+                if isinstance(observation, CallToolObservation):
+                    raw_payload = unwrap_tool_result(observation.result)
+                    if isinstance(raw_payload, dict):
+                        tool_payload = raw_payload
+                error = tool_payload.get("error")
+                props_payload = tool_payload.get("properties")
+                if tool_payload.get("success") and isinstance(props_payload, dict):
+                    current_props = MoleculeProperties.model_validate(props_payload)
+                metadata = build_local_metadata(
+                    task_name,
+                    current_props,
+                    step=step,
+                    done=done,
+                    last_action_error=error,
+                )
+            else:
+                metadata = observation.metadata or metadata
+                error = metadata.get("last_action_error")
+                props_payload = metadata.get("properties")
+                if isinstance(props_payload, dict):
+                    current_props = MoleculeProperties.model_validate(props_payload)
 
             rewards.append(reward)
             history.append(f"step={step} smiles={candidate_smiles} reward={reward:.2f}")
@@ -185,14 +259,18 @@ async def run_task(task_name: str, env_obj: object, uses_client: bool) -> None:
 
             if done:
                 final_score = metadata.get("final_score")
-                score = float(final_score) if final_score is not None else max(0.0, min(1.0, reward))
+                if final_score is not None:
+                    score = float(final_score)
+                else:
+                    score = grade_episode(task_name, current_props)
                 success = score >= TASKS[task_name].success_threshold
                 break
 
         if not rewards:
             rewards = []
-        if score == 0.0 and metadata.get("final_score") is not None:
-            score = float(metadata["final_score"])
+        if score == 0.0 and steps_taken > 0:
+            final_score = metadata.get("final_score")
+            score = float(final_score) if final_score is not None else grade_episode(task_name, current_props)
             success = score >= TASKS[task_name].success_threshold
     except Exception as exc:
         print(f"[DEBUG] Task '{task_name}' failed: {exc}", file=sys.stderr, flush=True)
