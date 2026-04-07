@@ -227,15 +227,23 @@ class MolOptEnvironment(MCPEnvironment):
         obs.metadata.update(self._build_observation_model(final_score=final_score).model_dump())
         return obs
 
+    def _should_count_step(self, action: Action) -> bool:
+        tool_name = getattr(action, "tool_name", None)
+        if isinstance(tool_name, str):
+            return tool_name == "modify_molecule"
+        return True
+
     def step(self, action: Action, timeout_s: Optional[float] = None, **kwargs: Any) -> Observation:
-        self._step_count += 1
-        self._state.step_count = self._step_count
+        if self._should_count_step(action):
+            self._step_count += 1
+            self._state.step_count = self._step_count
         obs = super().step(action, timeout_s=timeout_s, **kwargs)
         return self._finalize_observation(obs)
 
     async def step_async(self, action: Action, timeout_s: Optional[float] = None, **kwargs: Any) -> Observation:
-        self._step_count += 1
-        self._state.step_count = self._step_count
+        if self._should_count_step(action):
+            self._step_count += 1
+            self._state.step_count = self._step_count
         obs = await super().step_async(action, timeout_s=timeout_s, **kwargs)
         return self._finalize_observation(obs)
 
