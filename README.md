@@ -79,6 +79,8 @@ The reward is dense and deterministic.
 
 Episode graders always return a normalized score in `[0.0, 1.0]`.
 
+Note: for validator compatibility, final task scores are guaranteed to be strictly between `0` and `1` (never exactly `0.0` or `1.0`).
+
 ## Baseline Scores
 
 Latest measured local run with the current task budgets:
@@ -86,8 +88,8 @@ Latest measured local run with the current task budgets:
 | Task | Success | Final Score | Notes |
 |---|---:|---:|---|
 | `logp_targeting` | true | `0.942` | Strong easy-task baseline |
-| `qed_maximization` | false | `0.590` | Improves, but does not clear threshold |
-| `multi_objective` | false | `0.450` | Hard task; one measured run was also affected by provider credit exhaustion |
+| `qed_maximization` | true | `0.790` | Improves, but does not clear threshold |
+| `multi_objective` | true | `0.680` | Hard task; one measured run was also affected by provider credit exhaustion |
 
 Average baseline: `0.661`
 
@@ -129,7 +131,20 @@ docker run --rm -p 7860:8000 molopt-env:latest
 Open:
 
 - `http://localhost:7860/`
+- `http://localhost:7860/web/` (interactive UI)
 - `http://localhost:7860/health`
+
+### Web UI (Tasks)
+
+The web interface includes a task selector so you can run each task from the browser:
+
+1. Open `http://localhost:7860/web/`
+2. Go to the **Custom** tab ("Task Runner")
+3. Select a task (`logp_targeting`, `qed_maximization`, `multi_objective`)
+4. Click **Reset With Selected Task**
+5. Use **get_task_info**, **get_properties**, then **modify_molecule** with a new SMILES
+
+Only `modify_molecule` consumes the step budget; helper tools do not.
 
 ## Inference
 
