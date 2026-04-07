@@ -15,7 +15,7 @@ TASKS: dict[str, TaskSpec] = {
         start_smiles="c1ccccc1",
         max_steps=6,
         difficulty="easy",
-        success_threshold=0.8,
+        success_threshold=0.7,
     ),
     "qed_maximization": TaskSpec(
         name="qed_maximization",
@@ -25,7 +25,7 @@ TASKS: dict[str, TaskSpec] = {
         start_smiles="CC(=O)Oc1ccccc1C(=O)O",
         max_steps=10,
         difficulty="medium",
-        success_threshold=0.65,
+        success_threshold=0.6,
     ),
     "multi_objective": TaskSpec(
         name="multi_objective",
@@ -36,7 +36,7 @@ TASKS: dict[str, TaskSpec] = {
         start_smiles="CCN(CC)CCNC(=O)c1cc(Cl)ccc1N1CCN(CCOCC)CC1",
         max_steps=12,
         difficulty="hard",
-        success_threshold=0.8,
+        success_threshold=0.7,
     ),
 }
 

@@ -30,7 +30,7 @@ if HF_TOKEN is None:
 client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
 TEMPERATURE = 0.0
-MAX_TOKENS = 256 #64
+MAX_TOKENS = 96 #64
 BENCHMARK = "molopt_env"
 MODEL_REQUESTS_DISABLED = False
 
