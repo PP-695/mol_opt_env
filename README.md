@@ -162,24 +162,3 @@ Typical local flow:
 cp .env.example .env
 python inference.py
 ```
-
-## Hugging Face Space Deployment
-
-1. Create a new Hugging Face Space with `SDK = Docker`.
-2. Connect it to this repository.
-3. Keep `CPU Basic` hardware.
-4. Add Space variables or secrets:
-   - `API_BASE_URL`
-   - `MODEL_NAME`
-   - `HF_TOKEN`
-5. Wait for the Space to reach the `Running` state before submitting.
-
-## Validation Checklist
-
-Before submission:
-
-1. `openenv validate`
-2. `docker build -t molopt-env:latest .`
-3. `docker run --rm -p 7860:8000 molopt-env:latest`
-4. `python inference.py`
-5. Confirm the Hugging Face Space responds at `/health`
